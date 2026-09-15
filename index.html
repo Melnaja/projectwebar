@@ -1,0 +1,494 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>🫀 หัวใจ 3D: เดินทางไปกับเลือด (WebAR)</title>
+    <!-- นำเข้า Tailwind CSS สำหรับจัดรูปแบบ UI -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;600&display=swap');
+        body {
+            font-family: 'Kanit', sans-serif;
+            margin: 0;
+            overflow: hidden; /* ป้องกันการเลื่อนหน้าจอ */
+            background-color: #0f172a; /* สีพื้นหลังสำรองกรณีที่กล้องไม่ทำงาน */
+            touch-action: none; /* ป้องกัน gesture เริ่มต้นของเบราว์เซอร์ เพื่อให้หมุน 3D ได้ลื่นไหล */
+        }
+        /* ตกแต่ง UI สไตล์ Glassmorphism ให้ดูเป็นโฮโลแกรม AR */
+        .glass-panel {
+            background: rgba(15, 23, 42, 0.6);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3);
+        }
+        #webcam {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            z-index: 0;
+            opacity: 0.5; /* หรี่แสงกล้องลงเล็กน้อยเพื่อให้ 3D ลอยเด่นขึ้น */
+        }
+        #canvas-container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 5;
+        }
+    </style>
+</head>
+<body class="text-white">
+
+    <!-- วิดีโอสำหรับแสดงภาพจากกล้องจำลองสภาพแวดล้อม AR -->
+    <video id="webcam" autoplay playsinline muted></video>
+
+    <!-- พื้นที่สำหรับแสดงผล 3D (Three.js) -->
+    <div id="canvas-container"></div>
+
+    <!-- UI Layer ซ้อนทับบน 3D (Z-index 10) -->
+    <div class="absolute inset-0 z-10 pointer-events-none flex flex-col justify-between p-4 sm:p-6">
+        
+        <!-- ส่วนหัว (Header) -->
+        <header class="glass-panel rounded-2xl p-4 text-center pointer-events-auto max-w-lg mx-auto w-full transition-all duration-300">
+            <h1 class="text-xl sm:text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-red-400 to-pink-500">
+                🫀 หัวใจ 3D: เดินทางไปกับเลือด
+            </h1>
+            <p class="text-sm text-gray-300 mt-1 flex items-center justify-center gap-2">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 15l-2 5L9 9l11 4-5 2zm0 0l5 5M7.188 2.239l.777 2.897M5.136 7.965l-2.898-.777M13.95 4.05l-2.122 2.122m-5.657 5.656l-2.12 2.122" /></svg>
+                หมุนเพื่อดูรอบๆ • แตะที่ห้องหัวใจเพื่อดูข้อมูล
+            </p>
+        </header>
+
+        <!-- แผงข้อมูลห้องหัวใจ (จะแสดงผลเมื่อผู้ใช้แตะ) -->
+        <div id="info-panel" class="glass-panel rounded-2xl p-5 pointer-events-auto max-w-lg mx-auto w-full transform translate-y-8 opacity-0 transition-all duration-500 hidden">
+            <div class="flex justify-between items-start mb-3">
+                <h2 id="chamber-name" class="text-2xl font-bold text-white tracking-wide">ห้องหัวใจ</h2>
+                <button id="close-info" class="text-gray-400 hover:text-white bg-white/10 rounded-full p-1 transition">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                </button>
+            </div>
+            <p id="chamber-desc" class="text-gray-200 text-sm leading-relaxed mb-4">ข้อมูลการไหลเวียนเลือด...</p>
+            
+            <!-- อธิบายสีเลือด -->
+            <div class="grid grid-cols-2 gap-2 mt-2 pt-4 border-t border-white/20 text-xs sm:text-sm font-medium">
+                <div class="flex items-center gap-2 bg-blue-900/40 p-2 rounded-lg border border-blue-500/30">
+                    <div class="w-3 h-3 rounded-full bg-blue-400 shadow-[0_0_8px_#60a5fa]"></div>
+                    <span>เลือดมี O₂ ต่ำ</span>
+                </div>
+                <div class="flex items-center gap-2 bg-red-900/40 p-2 rounded-lg border border-red-500/30">
+                    <div class="w-3 h-3 rounded-full bg-red-500 shadow-[0_0_8px_#ef4444]"></div>
+                    <span>เลือดมี O₂ สูง</span>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.158.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.158.0/examples/jsm/"
+            }
+        }
+    </script>
+
+    <!-- Script หลักของแอปพลิเคชัน -->
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+        const canvasContainer = document.getElementById('canvas-container');
+        const infoPanel = document.getElementById('info-panel');
+        const chamberNameUI = document.getElementById('chamber-name');
+        const chamberDescUI = document.getElementById('chamber-desc');
+        const closeInfoBtn = document.getElementById('close-info');
+        
+        let scene, camera, renderer, controls;
+        let heartGroup = new THREE.Group();
+        let raycaster, mouse;
+        let particles = [];
+        let bloodPaths = [];
+        let clock = new THREE.Clock();
+
+        // ฐานข้อมูลห้องหัวใจ
+        const heartData = {
+            'RightAtrium': {
+                name: 'ห้องบนขวา (Right Atrium)',
+                color: '#ec4899', // Pinkish
+                desc: 'รับเลือดที่มีออกซิเจนต่ำ (สีน้ำเงิน) ที่ใช้แล้วจากส่วนต่างๆ ของร่างกายผ่านหลอดเลือดดำใหญ่ (Vena Cava) ก่อนจะบีบตัวส่งต่อไปยังห้องล่างขวา',
+                flowFocus: 'venacava'
+            },
+            'RightVentricle': {
+                name: 'ห้องล่างขวา (Right Ventricle)',
+                color: '#db2777',
+                desc: 'รับเลือดจากห้องบนขวา แล้วทำหน้าที่บีบตัวส่งเลือดที่มีออกซิเจนต่ำนี้ไปฟอกที่ปอดผ่านหลอดเลือดพัลโมนารีอาร์เตอรี (Pulmonary Artery)',
+                flowFocus: 'pulmonaryArtery'
+            },
+            'LeftAtrium': {
+                name: 'ห้องบนซ้าย (Left Atrium)',
+                color: '#ef4444', // Red
+                desc: 'รับเลือดที่ฟอกแล้ว (มีออกซิเจนสูง สีแดง) จากปอดผ่านหลอดเลือดพัลโมนารีเวน (Pulmonary Vein) เพื่อเตรียมส่งต่อไปยังห้องล่างซ้าย',
+                flowFocus: 'pulmonaryVein'
+            },
+            'LeftVentricle': {
+                name: 'ห้องล่างซ้าย (Left Ventricle)',
+                color: '#b91c1c', // Dark red
+                desc: 'ห้องที่มีผนังกล้ามเนื้อหนาที่สุด! ทำหน้าที่รับเลือดจากห้องบนซ้าย แล้วบีบตัวอย่างแรงเพื่อสูบฉีดเลือดแดงไปหล่อเลี้ยงทั่วร่างกายผ่านหลอดเลือดเอออร์ตา (Aorta)',
+                flowFocus: 'aorta'
+            }
+        };
+
+        async function setupWebcam() {
+            const video = document.getElementById('webcam');
+            try {
+                // ขอกล้องหลังถ้าเป็นมือถือ
+                const stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { facingMode: 'environment' } 
+                });
+                video.srcObject = stream;
+            } catch (err) {
+                console.log("ไม่สามารถเปิดกล้องได้ (อาจทดสอบบนระบบที่ไม่มีกล้อง) จะใช้พื้นหลังสีเข้มแทน", err);
+                // ซ่อนวีดีโอถ้าเปิดไม่ได้ ปล่อยให้ background CSS ทำงาน
+                video.style.display = 'none';
+            }
+        }
+
+        function initScene() {
+            // Scene
+            scene = new THREE.Scene();
+            
+            // Camera
+            camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
+            camera.position.set(0, 0, 15); // ถอยกล้องออกมาให้เห็นหัวใจชัดเจน
+
+            // Renderer
+            renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true }); // alpha: true เพื่อให้พื้นหลังโปร่งใสเห็นกล้อง
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); // ปรับความคมชัดบนมือถือ
+            canvasContainer.appendChild(renderer.domElement);
+
+            // Controls (หมุน, ซูม)
+            controls = new OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
+            controls.enablePan = false; // ปิดการเลื่อน
+            controls.minDistance = 8;
+            controls.maxDistance = 25;
+
+            // Lights
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+            scene.add(ambientLight);
+
+            const dirLight = new THREE.DirectionalLight(0xffffff, 1.2);
+            dirLight.position.set(5, 5, 5);
+            scene.add(dirLight);
+
+            const backLight = new THREE.DirectionalLight(0xffffff, 0.5);
+            backLight.position.set(-5, -5, -5);
+            scene.add(backLight);
+
+            // Raycaster สำหรับดักจับการคลิก
+            raycaster = new THREE.Raycaster();
+            mouse = new THREE.Vector2();
+
+            // สร้างโมเดล
+            buildHeartModel();
+            createBloodVessels();
+            
+            scene.add(heartGroup);
+
+            // สร้าง Animation เลือด
+            setupBloodFlowParticles();
+
+            // Events
+            window.addEventListener('resize', onWindowResize);
+            renderer.domElement.addEventListener('pointerdown', onPointerDown); // รองรับทั้งเมาส์และทัชสกรีน
+            closeInfoBtn.addEventListener('click', hideInfoPanel);
+        }
+
+        function buildHeartModel() {
+            // วัสดุพื้นฐานสำหรับกล้ามเนื้อหัวใจ มีความวาวเล็กน้อย
+            const createMaterial = (color) => new THREE.MeshPhysicalMaterial({
+                color: color,
+                roughness: 0.4,
+                metalness: 0.1,
+                clearcoat: 0.3,
+                clearcoatRoughness: 0.2
+            });
+
+            // 1. ห้องบนขวา (Right Atrium)
+            const raGeom = new THREE.SphereGeometry(1.4, 32, 32);
+            const raMesh = new THREE.Mesh(raGeom, createMaterial(0x831843)); // ชมพูเข้ม/ม่วง
+            raMesh.position.set(-1.6, 1.5, 0.5);
+            raMesh.scale.set(1, 0.9, 1);
+            raMesh.userData = { id: 'RightAtrium', isChamber: true, originalColor: 0x831843 };
+            heartGroup.add(raMesh);
+
+            // 2. ห้องล่างขวา (Right Ventricle)
+            const rvGeom = new THREE.CapsuleGeometry(1.5, 2.5, 32, 32);
+            const rvMesh = new THREE.Mesh(rvGeom, createMaterial(0x9d174d)); // แดงอมม่วง
+            rvMesh.position.set(-1.2, -1.2, 0.8);
+            rvMesh.rotation.z = Math.PI / 8; // เอียงเล็กน้อย
+            rvMesh.rotation.x = Math.PI / 12;
+            rvMesh.userData = { id: 'RightVentricle', isChamber: true, originalColor: 0x9d174d };
+            heartGroup.add(rvMesh);
+
+            // 3. ห้องบนซ้าย (Left Atrium)
+            const laGeom = new THREE.SphereGeometry(1.3, 32, 32);
+            const laMesh = new THREE.Mesh(laGeom, createMaterial(0xdc2626)); // แดงสด
+            laMesh.position.set(1.4, 1.6, -0.2);
+            laMesh.userData = { id: 'LeftAtrium', isChamber: true, originalColor: 0xdc2626 };
+            heartGroup.add(laMesh);
+
+            // 4. ห้องล่างซ้าย (Left Ventricle) - หนาและใหญ่สุด
+            const lvGeom = new THREE.CapsuleGeometry(1.8, 3.2, 32, 32);
+            const lvMesh = new THREE.Mesh(lvGeom, createMaterial(0x991b1b)); // แดงเข้ม
+            lvMesh.position.set(1.2, -1.8, -0.5);
+            lvMesh.rotation.z = -Math.PI / 6;
+            lvMesh.rotation.x = Math.PI / 8;
+            lvMesh.userData = { id: 'LeftVentricle', isChamber: true, originalColor: 0x991b1b };
+            heartGroup.add(lvMesh);
+
+            // เพิ่มจังหวะการเต้นของหัวใจ (Heartbeat Animation data)
+            heartGroup.userData = { baseScale: 1, pulsePhase: 0 };
+            
+            // ขยับศูนย์กลางกลุ่ม
+            heartGroup.position.y = 0.5;
+        }
+
+        function createBloodVessels() {
+            // ฟังก์ชันช่วยเหลือสำหรับสร้างเส้นทาง (Paths)
+            const createPath = (points, name) => {
+                const curve = new THREE.CatmullRomCurve3(points);
+                // สร้างหลอดเลือดแบบโปร่งแสง (TubeGeometry) ให้เห็นทางเดิน
+                const tubeGeo = new THREE.TubeGeometry(curve, 20, 0.3, 8, false);
+                const tubeMat = new THREE.MeshPhysicalMaterial({
+                    color: 0xffffff, transmission: 0.8, opacity: 0.4, transparent: true, roughness: 0.1
+                });
+                const tube = new THREE.Mesh(tubeGeo, tubeMat);
+                heartGroup.add(tube);
+                bloodPaths.push({ name: name, curve: curve });
+            };
+
+            // 1. Vena Cava (เข้าสู่ Right Atrium) - เลือดดำ
+            createPath([
+                new THREE.Vector3(-2.5, 4.5, 0.5),
+                new THREE.Vector3(-2.0, 3.0, 0.5),
+                new THREE.Vector3(-1.6, 1.5, 0.5) // ถึง RA
+            ], 'venacava');
+
+            // 2. RA to RV (ผ่านลิ้นหัวใจ) - เลือดดำ
+            createPath([
+                new THREE.Vector3(-1.6, 1.5, 0.5),
+                new THREE.Vector3(-1.4, 0, 0.7),
+                new THREE.Vector3(-1.2, -1.2, 0.8) // ถึง RV
+            ], 'ra_to_rv');
+
+            // 3. Pulmonary Artery (ออกจาก RV ไปปอด) - เลือดดำ (สีน้ำเงิน)
+            createPath([
+                new THREE.Vector3(-1.2, -1.2, 0.8),
+                new THREE.Vector3(-0.5, 1.0, 1.5),
+                new THREE.Vector3(-0.5, 3.5, 1.0),
+                new THREE.Vector3(-2.0, 4.0, -1.0) // แยกไปปอด
+            ], 'pulmonaryArtery');
+
+            // 4. Pulmonary Vein (กลับจากปอดเข้า LA) - เลือดแดง
+            createPath([
+                new THREE.Vector3(3.0, 3.0, -1.5),
+                new THREE.Vector3(2.0, 2.5, -0.8),
+                new THREE.Vector3(1.4, 1.6, -0.2) // ถึง LA
+            ], 'pulmonaryVein');
+
+            // 5. LA to LV (ผ่านลิ้นหัวใจ) - เลือดแดง
+            createPath([
+                new THREE.Vector3(1.4, 1.6, -0.2),
+                new THREE.Vector3(1.3, 0, -0.3),
+                new THREE.Vector3(1.2, -1.8, -0.5) // ถึง LV
+            ], 'la_to_lv');
+
+            // 6. Aorta (ออกจาก LV ไปเลี้ยงร่างกาย) - เลือดแดง
+            createPath([
+                new THREE.Vector3(1.2, -1.8, -0.5),
+                new THREE.Vector3(0.5, 0.5, -0.5),
+                new THREE.Vector3(0, 3.5, -0.5),
+                new THREE.Vector3(0.5, 4.5, 1.0), // โค้งเอออร์ติก
+                new THREE.Vector3(0.5, -4.0, 1.5) // ลงไปสู่ร่างกายส่วนล่าง
+            ], 'aorta');
+        }
+
+        function setupBloodFlowParticles() {
+            // สร้างเม็ดเลือดแดงและน้ำเงินที่วิ่งตามเส้นทาง
+            const createParticlesForPath = (pathName, colorHex, count, speedOffset) => {
+                const pathObj = bloodPaths.find(p => p.name === pathName);
+                if (!pathObj) return;
+
+                const particleGeo = new THREE.SphereGeometry(0.12, 16, 16);
+                // ใช้วัสดุเรืองแสง
+                const particleMat = new THREE.MeshBasicMaterial({ 
+                    color: colorHex 
+                });
+
+                for (let i = 0; i < count; i++) {
+                    const particle = new THREE.Mesh(particleGeo, particleMat);
+                    heartGroup.add(particle);
+                    
+                    particles.push({
+                        mesh: particle,
+                        curve: pathObj.curve,
+                        progress: i / count, // จุดเริ่มต้นบนเส้น
+                        speed: 0.003 + speedOffset // ความเร็วที่ต่างกันเล็กน้อย
+                    });
+                }
+            };
+
+            const blueColor = 0x3b82f6; // O2 ต่ำ
+            const redColor = 0xef4444;  // O2 สูง
+
+            // เลือดดำ (ฝั่งขวา)
+            createParticlesForPath('venacava', blueColor, 5, 0.001);
+            createParticlesForPath('ra_to_rv', blueColor, 4, 0.002);
+            createParticlesForPath('pulmonaryArtery', blueColor, 8, 0.003);
+
+            // เลือดแดง (ฝั่งซ้าย)
+            createParticlesForPath('pulmonaryVein', redColor, 5, 0.001);
+            createParticlesForPath('la_to_lv', redColor, 4, 0.002);
+            createParticlesForPath('aorta', redColor, 12, 0.004); // สูบฉีดแรงและยาว
+        }
+
+        function onPointerDown(event) {
+            // คำนวณตำแหน่งเมาส์/สัมผัส (Normailzed Device Coordinates)
+            let clientX, clientY;
+            if(event.changedTouches) {
+                clientX = event.changedTouches[0].clientX;
+                clientY = event.changedTouches[0].clientY;
+            } else {
+                clientX = event.clientX;
+                clientY = event.clientY;
+            }
+
+            mouse.x = (clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(clientY / window.innerHeight) * 2 + 1;
+
+            // ยิง Raycaster
+            raycaster.setFromCamera(mouse, camera);
+            
+            // หาวัตถุที่ถูกชน
+            const intersects = raycaster.intersectObjects(heartGroup.children);
+
+            if (intersects.length > 0) {
+                // หา Object ที่เป็นห้องหัวใจเท่านั้น
+                const chamberIntersect = intersects.find(hit => hit.object.userData && hit.object.userData.isChamber);
+                
+                if (chamberIntersect) {
+                    const obj = chamberIntersect.object;
+                    const cId = obj.userData.id;
+                    const data = heartData[cId];
+                    
+                    // กระพริบเน้นสี
+                    highlightChamber(obj);
+                    
+                    // แสดง UI
+                    showInfoPanel(data);
+                }
+            }
+        }
+
+        // ฟังก์ชันเน้นสีห้องที่ถูกคลิก
+        let activeChamber = null;
+        function highlightChamber(mesh) {
+            // คืนค่าสีเดิมให้กับห้องที่เคยกด
+            if(activeChamber && activeChamber !== mesh) {
+                activeChamber.material.emissive.setHex(0x000000);
+            }
+            
+            activeChamber = mesh;
+            // เพิ่มสีเรืองแสง (Emissive) ให้สว่างขึ้น
+            mesh.material.emissive.setHex(0x444444);
+            
+            // ใช้ setTimeout เล็กน้อยเพื่อลดแสง (ทำ Effect Pulse)
+            setTimeout(() => {
+                if(activeChamber === mesh) {
+                    mesh.material.emissive.setHex(0x222222);
+                }
+            }, 200);
+        }
+
+        // การจัดการ UI
+        function showInfoPanel(data) {
+            chamberNameUI.innerText = data.name;
+            chamberNameUI.style.color = data.color;
+            chamberDescUI.innerText = data.desc;
+            
+            infoPanel.classList.remove('hidden');
+            // ทำการหน่วงเวลาเพื่อทำ Transition เลื่อนขึ้นและ Fade in
+            setTimeout(() => {
+                infoPanel.classList.remove('translate-y-8', 'opacity-0');
+            }, 10);
+        }
+
+        function hideInfoPanel() {
+            infoPanel.classList.add('translate-y-8', 'opacity-0');
+            setTimeout(() => {
+                infoPanel.classList.add('hidden');
+            }, 500); // รอให้ Transition จบ
+
+            // ลบการเน้นสี 3D โมเดล
+            if(activeChamber) {
+                activeChamber.material.emissive.setHex(0x000000);
+                activeChamber = null;
+            }
+        }
+
+        // จัดการเมื่อเปลี่ยนขนาดจอ (Resize)
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+
+            const elapsedTime = clock.getElapsedTime();
+
+            // 1. จำลองจังหวะการเต้นหัวใจ (Heartbeat - Systole/Diastole)
+            // ใช้ฟังก์ชันคณิตศาสตร์สร้างจังหวะตุบๆ (2 จังหวะติดกัน แล้วพัก)
+            const beat = Math.sin(elapsedTime * 6) * Math.sin(elapsedTime * 3);
+            const scaleAmount = 1 + (beat > 0.5 ? (beat - 0.5) * 0.1 : 0);
+            heartGroup.scale.set(scaleAmount, scaleAmount, scaleAmount);
+
+            // 2. เคลื่อนที่เม็ดเลือด (Particles) ตามเส้นทาง
+            particles.forEach(p => {
+                p.progress += p.speed;
+                if (p.progress > 1) {
+                    p.progress = 0; // วนกลับไปจุดเริ่มต้นเมื่อสุดทาง
+                }
+                
+                // หาจุดตำแหน่งบนเส้น curve (0.0 - 1.0)
+                const point = p.curve.getPointAt(p.progress);
+                p.mesh.position.copy(point);
+            });
+
+            // อัปเดต controls ดึงหน่วง
+            controls.update();
+
+            // เรนเดอร์ซีน
+            renderer.render(scene, camera);
+        }
+
+        window.onload = function() {
+            setupWebcam(); // เปิดกล้อง
+            initScene();   // สร้างสภาพแวดล้อม 3D
+            animate();     // เริ่มลูปแอนิเมชัน
+        };
+
+    </script>
+</body>
+</html>
